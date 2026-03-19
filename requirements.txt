@@ -1,0 +1,5 @@
+torch>=2.0
+torchvision>=0.15
+pygame>=2.5
+pillow>=9.0
+numpy>=1.24
