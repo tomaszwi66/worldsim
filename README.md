@@ -32,8 +32,14 @@ Open this app in your browser (works on phone and desktop):
 
 👉 **[https://websim.com/@TomaszW/worldmodel-data-collector](https://websim.com/@TomaszW/worldmodel-data-collector)**
 
-Walk around with your camera. Press **W / A / S / D** to tag the direction you're moving.  
-The app records everything automatically.
+![WorldModel Data Collector](assets/worldsim.png)
+
+Just move your camera around - **no buttons to press**. The app automatically detects:
+- **Movement direction** from keypoint tracking (optical flow between frames)
+- **IMU data** - accelerometer and gyroscope from your phone sensors
+- **Orientation** - device tilt and rotation in 3D space
+
+All signals are fused to infer the action vector `[dx, dy]` for each frame automatically.
 
 When done - tap **Export / Download**. You'll get a folder with:
 
@@ -64,7 +70,10 @@ You have two options:
 
 1. Go to **[kaggle.com](https://www.kaggle.com)** and create a free account
 2. Go to **Datasets** → **New Dataset**
-3. Upload everything from your export folder (all `.jpg` files + `dataset.jsonl` + `metadata.json`) into one flat folder
+3. Upload your export folder contents into one flat folder:
+   - all `frame_XXXXX.jpg` files ← **required**
+   - `dataset.jsonl` ← **required**
+   - `metadata.json` ← optional, not used by the model
 4. Publish the dataset (can be private)
 5. Go to **Code** → **New Notebook**
 6. Click **File → Upload Notebook** and upload `notebooks/train.ipynb` from this repo
