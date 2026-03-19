@@ -1,16 +1,10 @@
-"""
-WorldSim — Local Pygame Player
-================================
-Play your trained world model live with WASD keys.
-
-Usage:
-    python play.py
+-    python play.py
 
     or with custom paths:
-    python play.py --model path/to/worldmodel_v2.pt --start path/to/frame_00000.jpg
+    python play.py --model worldmodel_v2.pt --start frame_00000.jpg
 
 Requirements:
-    pip install -r requirements.txt
+    pip install pygame torch torchvision pillow numpy
 """
 
 import argparse
@@ -26,42 +20,27 @@ from torchvision import transforms
 
 # ── CLI args ──────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="WorldSim pygame player")
-parser.add_argument("--model",  default="worldmodel_v2.pt", help="Path to .pt model file")
-parser.add_argument("--start",  default="frame_00000.jpg",  help="Path to starting frame image")
-parser.add_argument("--width",  type=int, default=640,      help="Window width")
-parser.add_argument("--height", type=int, default=480,      help="Window height")
-parser.add_argument("--fps",    type=int, default=15,       help="Target FPS (match training FPS)")
+parser.add_argument("--model",  default="worldmodel_v2.pt")
+parser.add_argument("--start",  default="frame_00000.jpg")
+parser.add_argument("--width",  type=int, default=640)
+parser.add_argument("--height", type=int, default=480)
+parser.add_argument("--fps",    type=int, default=15)
 args = parser.parse_args()
 
-# ── Device ────────────────────────────────────────────────────────────────────
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[WorldSim] Device: {DEVICE}")
 
-# ── Hyperparameters — must match training exactly ─────────────────────────────
+# ── Hyperparameters (must match training) ────────────────────────────────────
 IMG_H, IMG_W = 128, 128
 HIDDEN_DIM   = 512
 LATENT_DIM   = 256
 ACTION_DIM   = 64
 N_ACTIONS    = 9
 
-# ── Action space ──────────────────────────────────────────────────────────────
-# dx, dy ∈ {-1, 0, 1}  →  index = (dx+1)*3 + (dy+1)
 def action_idx(dx, dy):
     return (dx + 1) * 3 + (dy + 1)
 
-ACTION_LABELS = {
-    (0,  0): "STOP",
-    (0,  1): "W  — forward",
-    (0, -1): "S  — backward",
-    (-1, 0): "A  — left",
-    (1,  0): "D  — right",
-    (-1, 1): "W+A",
-    (1,  1): "W+D",
-    (-1,-1): "S+A",
-    (1, -1): "S+D",
-}
-
-# ── Model architecture (identical to training) ────────────────────────────────
+# ── Architecture ──────────────────────────────────────────────────────────────
 class ResBlock(nn.Module):
     def __init__(self, ch):
         super().__init__()
@@ -70,7 +49,6 @@ class ResBlock(nn.Module):
             nn.Conv2d(ch, ch, 3, 1, 1), nn.GroupNorm(8, ch),
         )
     def forward(self, x): return x + self.net(x)
-
 
 class Encoder(nn.Module):
     def __init__(self):
@@ -86,7 +64,6 @@ class Encoder(nn.Module):
         )
     def forward(self, x): return self.net(x)
 
-
 class Decoder(nn.Module):
     def __init__(self):
         super().__init__()
@@ -100,7 +77,6 @@ class Decoder(nn.Module):
             nn.ConvTranspose2d( 32,   3, 4, 2, 1), nn.Tanh(),
         )
     def forward(self, z): return self.net(self.fc(z).view(-1, 512, 4, 4))
-
 
 class RSSM(nn.Module):
     def __init__(self):
@@ -120,7 +96,6 @@ class RSSM(nn.Module):
 
     @torch.no_grad()
     def step(self, h, frame, a_idx):
-        """One step: current frame + action → next frame + updated hidden state."""
         a    = torch.tensor([a_idx], device=DEVICE)
         ae   = self.action_emb(a)
         z    = self.encoder(frame)
@@ -128,26 +103,21 @@ class RSSM(nn.Module):
         h    = self.gru(torch.cat([mu, ae], -1), h)
         return h, self.decoder(torch.cat([h, mu], -1))
 
-
 # ── Load model ────────────────────────────────────────────────────────────────
 model_path = Path(args.model)
 if not model_path.exists():
     print(f"[WorldSim] ERROR: Model not found: {model_path}")
-    print("  → Train first using notebooks/train.ipynb on Kaggle")
-    print("  → Download worldmodel_v2.pt to this folder")
     sys.exit(1)
 
 model = RSSM().to(DEVICE)
 model.load_state_dict(torch.load(model_path, map_location=DEVICE, weights_only=True))
 model.eval()
-n_params = sum(p.numel() for p in model.parameters())
-print(f"[WorldSim] Model loaded: {model_path}  ({n_params/1e6:.1f}M params)")
+print(f"[WorldSim] Model loaded ({sum(p.numel() for p in model.parameters())/1e6:.1f}M params)")
 
-# ── Load starting frame ───────────────────────────────────────────────────────
+# ── Load start frame ──────────────────────────────────────────────────────────
 start_path = Path(args.start)
 if not start_path.exists():
-    print(f"[WorldSim] ERROR: Starting frame not found: {start_path}")
-    print("  → Copy any frame_XXXXX.jpg from your dataset to this folder")
+    print(f"[WorldSim] ERROR: Start frame not found: {start_path}")
     sys.exit(1)
 
 transform = transforms.Compose([
@@ -155,25 +125,71 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
 ])
-
 start_frame = transform(Image.open(start_path).convert("RGB")).unsqueeze(0).to(DEVICE)
-print(f"[WorldSim] Starting frame: {start_path}")
+print(f"[WorldSim] Start frame: {start_path}")
 
 # ── Game state ────────────────────────────────────────────────────────────────
 h     = torch.zeros(1, HIDDEN_DIM, device=DEVICE)
 frame = start_frame.clone()
+step_count = 0
 
 def reset():
-    global h, frame
-    h     = torch.zeros(1, HIDDEN_DIM, device=DEVICE)
-    frame = start_frame.clone()
+    global h, frame, step_count
+    h, frame, step_count = torch.zeros(1, HIDDEN_DIM, device=DEVICE), start_frame.clone(), 0
     print("[WorldSim] Reset.")
 
-def tensor_to_surface(t, w, h_px):
+def tensor_to_surface(t, w, hh):
     arr = (t.squeeze(0) * 0.5 + 0.5).clamp(0, 1)
     arr = (arr.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-    img = Image.fromarray(arr).resize((w, h_px), Image.LANCZOS)
+    img = Image.fromarray(arr).resize((w, hh), Image.LANCZOS)
     return pygame.surfarray.make_surface(np.array(img).swapaxes(0, 1))
+
+# ── WASD arrow pad renderer ───────────────────────────────────────────────────
+def draw_action_pad(surface, dx, dy, x, y):
+    """
+    Draw a D-pad style arrow indicator at position (x, y) — bottom-right corner.
+    dx, dy: current action vector
+    """
+    PAD   = 38   # size of each arrow button
+    GAP   = 4    # gap between buttons
+    R     = 10   # corner radius
+
+    # Colors
+    COL_BG       = (20,  20,  20,  180)   # dark background panel
+    COL_INACTIVE = (60,  60,  60,  200)   # inactive arrow
+    COL_ACTIVE   = (255, 220,  0,  255)   # active arrow (yellow)
+    COL_ARROW    = (255, 255, 255, 255)   # arrow symbol
+
+    # Panel background
+    panel_w = PAD * 3 + GAP * 4
+    panel_h = PAD * 3 + GAP * 4
+    panel   = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    pygame.draw.rect(panel, COL_BG, (0, 0, panel_w, panel_h), border_radius=12)
+
+    # Arrow button positions: (label, col, row, action_dx, action_dy)
+    buttons = [
+        ("▲", 1, 0,  0,  1),   # W — top center
+        ("◀", 0, 1, -1,  0),   # A — middle left
+        ("●", 1, 1,  0,  0),   # STOP — center
+        ("▶", 2, 1,  1,  0),   # D — middle right
+        ("▼", 1, 2,  0, -1),   # S — bottom center
+    ]
+
+    for symbol, col, row, bdx, bdy in buttons:
+        bx = GAP + col * (PAD + GAP)
+        by = GAP + row * (PAD + GAP)
+        is_active = (bdx == dx and bdy == dy and not (bdx == 0 and bdy == 0 and (dx != 0 or dy != 0)))
+        if symbol == "●":
+            is_active = (dx == 0 and dy == 0)
+        btn_col = COL_ACTIVE if is_active else COL_INACTIVE
+        pygame.draw.rect(panel, btn_col, (bx, by, PAD, PAD), border_radius=R)
+        # Arrow symbol
+        font_arrow = pygame.font.SysFont("segoeui", 20, bold=True)
+        sym_surf = font_arrow.render(symbol, True, COL_ARROW if is_active else (150, 150, 150))
+        sym_rect = sym_surf.get_rect(center=(bx + PAD // 2, by + PAD // 2))
+        panel.blit(sym_surf, sym_rect)
+
+    surface.blit(panel, (x - panel_w, y - panel_h))
 
 # ── Pygame init ───────────────────────────────────────────────────────────────
 pygame.init()
@@ -181,20 +197,16 @@ WIN_W, WIN_H = args.width, args.height
 screen = pygame.display.set_mode((WIN_W, WIN_H))
 pygame.display.set_caption("WorldSim  |  WASD = move  |  R = reset  |  ESC = quit")
 clock  = pygame.time.Clock()
-font   = pygame.font.SysFont("monospace", 16)
-font_s = pygame.font.SysFont("monospace", 13)
+font   = pygame.font.SysFont("monospace", 15)
+font_s = pygame.font.SysFont("monospace", 12)
 
-print("\n[WorldSim] Controls:")
-print("  W / S / A / D  — move camera")
-print("  R              — reset to starting frame")
-print("  ESC / Q        — quit\n")
+print("\n[WorldSim] Controls: WASD = move | R = reset | ESC = quit\n")
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 running        = True
 current_action = (0, 0)
 
 while running:
-    # Events
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -204,7 +216,7 @@ while running:
             if event.key == pygame.K_r:
                 reset()
 
-    # Continuous key input
+    # Continuous WASD input
     keys = pygame.key.get_pressed()
     dx, dy = 0, 0
     if keys[pygame.K_w]: dy =  1
@@ -215,19 +227,21 @@ while running:
 
     # Model step
     h, frame = model.step(h, frame, action_idx(dx, dy))
+    step_count += 1
 
-    # Render
+    # Render frame
     screen.blit(tensor_to_surface(frame, WIN_W, WIN_H), (0, 0))
 
-    # Semi-transparent HUD background
-    hud = pygame.Surface((220, 80), pygame.SRCALPHA)
+    # ── Top-left HUD ──────────────────────────────────────────────────────────
+    hud = pygame.Surface((160, 60), pygame.SRCALPHA)
     hud.fill((0, 0, 0, 140))
     screen.blit(hud, (8, 8))
+    screen.blit(font.render(f"FPS:  {clock.get_fps():.0f}", True, (255, 220, 0)), (14, 13))
+    screen.blit(font.render(f"Step: {step_count}", True, (255, 220, 0)), (14, 31))
+    screen.blit(font_s.render("R=reset  ESC=quit", True, (160, 160, 160)), (14, 52))
 
-    screen.blit(font.render(f"FPS:    {clock.get_fps():.0f}", True, (255, 220, 0)), (14, 12))
-    screen.blit(font.render(f"Action: {ACTION_LABELS[current_action]}", True, (255, 220, 0)), (14, 30))
-    screen.blit(font_s.render("R=reset   ESC=quit", True, (180, 180, 180)), (14, 52))
-    screen.blit(font_s.render(f"Device: {DEVICE}", True, (140, 140, 140)), (14, 68))
+    # ── Bottom-right action pad ───────────────────────────────────────────────
+    draw_action_pad(screen, dx, dy, WIN_W - 10, WIN_H - 10)
 
     pygame.display.flip()
     clock.tick(args.fps)
