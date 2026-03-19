@@ -33,7 +33,7 @@ Open this app in your browser (works on phone and desktop):
 
 👉 **[https://websim.com/@TomaszW/worldmodel-data-collector](https://websim.com/@TomaszW/worldmodel-data-collector)**
 
-<img src="assets/worldsim.png" width="600" alt="WorldModel Data Collector">
+<img src="assets/collector.png" width="600" alt="WorldModel Data Collector">
 
 Just move your camera around - **no buttons to press**. The app automatically detects:
 - **Movement direction** from keypoint tracking (optical flow between frames)
